@@ -1,3 +1,14 @@
+function randomColour() {
+  var o = Math.round,
+    r = Math.random,
+    s = 255;
+  return {
+    R: o((r() * s) / 255),
+    G: o((r() * s) / 255),
+    B: o((r() * s) / 255)
+  };
+}
+
 const canvas = document.getElementById('canvas');
 
 /** @type {WebGLRenderingContext} */
@@ -46,8 +57,10 @@ const vertexShader = `
     with no lighting in use.
 */
 const fragmentShader = `
+    precision mediump float;
+    uniform vec3 colorMatrix;
     void main() {
-        gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0);
+        gl_FragColor = vec4(colorMatrix, 1.0);
     }
 `;
 
@@ -125,6 +138,83 @@ function initBuffers(gl) {
   };
 }
 
+/**
+ *
+ * @param {WebGLRenderingContext} gl
+ * @param {Object} programInfo
+ * @param {Object} buffers
+ */
+function drawScene(gl, programInfo, buffers) {
+  //Clear the screen and depth buffer
+  gl.clearColor(0.0, 0.0, 0.0, 1.0);
+  gl.clearDepth(1.0);
+
+  //Enable depth testing and make sure near things obscure things that are further away
+  // ? LEQUAL Definition: pass if the incoming value is less than or equal to the depth buffer value
+  gl.enable(gl.DEPTH_TEST);
+  gl.depthFunc(gl.LEQUAL);
+
+  //Clear the canvas
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+  /* Create a perspective matrix, a special matrix that is
+    used to simulate the distortion of perspective in a camera.
+    Our field of view is 45 degrees, with a width/height
+    ratio that matches the display size of the canvas
+    and we only want to see objects between 0.1 units
+    and 100 units away from the camera.*/
+
+  const fieldOfView = (45 * Math.PI) / 180; //45 deg in radians
+  const aspect = gl.canvas.clientWidth / gl.canvas.clientHeight;
+  const zNear = 0.1;
+  const zFar = 100.0;
+  const projectionMatrix = mat4.create(); //mat4.create() comes from the gl-matrix.js library
+
+  mat4.perspective(projectionMatrix, fieldOfView, aspect, zNear, zFar);
+
+  //Set the drawing position to the "identity" point, which is the center of the scene.
+  const modelViewMatrix = mat4.create();
+
+  //Move the drawing position a bit to where we want to start drawing the square.
+  // Destination Matrix, Matrix to Translate, Amount to Translate
+  mat4.translate(modelViewMatrix, modelViewMatrix, [-0.0, 0.0, -6.0]);
+
+  //Tell WebGL how to pull the positions from the position into the
+  //vertexPosition attribute (To be used in the shader)
+  const numComponents = 2; //Values to pull out per iteration (2: x, y)
+  const type = gl.FLOAT; //The data in the buffer is 32 bit floats
+  const normalise = false; //Don't normalize (we don't use any lighting)
+  const stride = 0; //How many bytes to get from one set of values to the next. (0 = use numComponents and type above)
+  const offset = 0; //How many bytes inside the buffer to start from
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffers.position);
+
+  gl.vertexAttribPointer(
+    programInfo.attribLocations.vertexPosition,
+    numComponents,
+    type,
+    normalise,
+    stride,
+    offset
+  );
+
+  gl.enableVertexAttribArray(programInfo.attribLocations.vertexPosition);
+
+  //Tell WebGL to use our program when drawing
+  gl.useProgram(programInfo.program);
+
+  //Set the shader uniforms
+  gl.uniformMatrix4fv(programInfo.uniformLocations.projectionMatrix, false, projectionMatrix);
+  gl.uniformMatrix4fv(programInfo.uniformLocations.modelViewMatrix, false, modelViewMatrix);
+
+  const colour = randomColour();
+
+  gl.uniform3f(programInfo.uniformLocations.colorMatrix, colour.R, colour.G, colour.B);
+
+  //Draw our arrays 4 elements at a time using the gl.TRIANGLE_STRIP drawing mode
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+}
+
 //Initialise the shader program
 const shaderProgram = initShaderProgram(gl, vertexShader, fragmentShader);
 
@@ -136,6 +226,11 @@ const programInfo = {
   },
   uniformLocations: {
     projectionMatrix: gl.getUniformLocation(shaderProgram, 'uProjectionMatrix'),
-    modelViewMatrix: gl.getUniformLocation(shaderProgram, 'uModelViewMatrix')
+    modelViewMatrix: gl.getUniformLocation(shaderProgram, 'uModelViewMatrix'),
+    colorMatrix: gl.getUniformLocation(shaderProgram, 'colorMatrix')
   }
 };
+
+const buffers = initBuffers(gl);
+
+drawScene(gl, programInfo, buffers);
